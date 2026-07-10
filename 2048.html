@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>2048</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="2048">
+<meta name="theme-color" content="#141614">
+<link rel="apple-touch-icon" href="./icon-2048.png">
+<link rel="icon" href="./icon-2048.png">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+body{margin:0;background:#141614;color:#E8EDE7;
+  font-family:'Hiragino Sans','Yu Gothic',system-ui,sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  padding:calc(env(safe-area-inset-top) + 18px) 16px 30px}
+.top{width:min(90vw,380px);display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px}
+h1{font-size:30px;margin:0;font-family:ui-monospace,'SF Mono',Menlo,monospace;letter-spacing:.02em}
+.scores{display:flex;gap:8px}
+.sbox{background:#1E231F;border-radius:10px;padding:6px 14px;text-align:center;min-width:64px}
+.slabel{font-size:10px;color:#8A8F88;letter-spacing:.1em}
+.sval{font-size:17px;font-weight:700;font-family:ui-monospace,Menlo,monospace}
+.bar{width:min(90vw,380px);display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.hint{font-size:12px;color:#8A8F88}
+.btn{border:1px solid #3A403A;background:transparent;color:#C4CCC4;border-radius:9px;
+  padding:7px 13px;font-size:13px;cursor:pointer;font-family:inherit}
+#board{position:relative;width:min(90vw,380px);height:min(90vw,380px);
+  background:#1E231F;border-radius:14px;touch-action:none}
+.bg{position:absolute;background:#272D28;border-radius:9px}
+.tile{position:absolute;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  font-family:ui-monospace,'SF Mono',Menlo,monospace;font-weight:700;
+  transition:transform .11s ease-out;will-change:transform}
+.tile.new{animation:pop .16s ease-out}
+.tile.merged{animation:bump .16s ease-out}
+@keyframes pop{0%{scale:.4;opacity:0}100%{scale:1;opacity:1}}
+@keyframes bump{0%{scale:1}45%{scale:1.18}100%{scale:1}}
+@media (prefers-reduced-motion: reduce){.tile{transition:none}.tile.new,.tile.merged{animation:none}}
+#overlay{position:absolute;inset:0;background:rgba(20,22,20,.82);border-radius:14px;
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5}
+#overlay.show{display:flex}
+#ovtext{font-size:22px;font-weight:700}
+#ovsub{font-size:13px;color:#8A8F88;font-family:ui-monospace,Menlo,monospace}
+.obtn{border:none;background:#3D6B4F;color:#fff;border-radius:10px;padding:11px 22px;font-size:15px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>2048</h1>
+  <div class="scores">
+    <div class="sbox"><div class="slabel">SCORE</div><div class="sval" id="score">0</div></div>
+    <div class="sbox"><div class="slabel">BEST</div><div class="sval" id="best">0</div></div>
+  </div>
+</div>
+<div class="bar">
+  <span class="hint">スワイプで移動 · 同じ数を合成</span>
+  <span style="display:flex;gap:6px">
+    <button class="btn" id="undoBtn" onclick="undo()">戻す</button>
+    <button class="btn" onclick="newGame()">新規</button>
+  </span>
+</div>
+<div id="board">
+  <div id="overlay">
+    <div id="ovtext"></div><div id="ovsub"></div>
+    <button class="obtn" onclick="newGame()">もう一回</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const KEY="game2048-v1", BESTKEY="game2048-best";
+const N=4, GAP=10;
+let tiles=[], nextId=1, score=0, best=0, moving=false, over=false, prevState=null;
+const board=document.getElementById("board");
+const els=new Map();
+let cellSize=0;
+
+function metrics(){
+  const w=board.clientWidth;
+  cellSize=(w-GAP*(N+1))/N;
+}
+function xy(r,c){ return [GAP+c*(cellSize+GAP), GAP+r*(cellSize+GAP)]; }
+
+function buildBg(){
+  metrics();
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const d=document.createElement("div");
+    d.className="bg";
+    const [x,y]=xy(r,c);
+    d.style.cssText="left:"+x+"px;top:"+y+"px;width:"+cellSize+"px;height:"+cellSize+"px";
+    board.appendChild(d);
+  }
+}
+function tileStyle(t){
+  const v=t.v;
+  const map={2:["#E8EDE7","#1A1D1A"],4:["#D6E2D6","#1A1D1A"],8:["#A9C9B4","#1A1D1A"],
+    16:["#7FAE8F","#0F120F"],32:["#5B9273","#fff"],64:["#3D6B4F","#fff"],
+    128:["#C9A45A","#1A1D1A"],256:["#B8923F","#fff"],512:["#9A6A1E","#fff"],
+    1024:["#7C5312","#fff"],2048:["#B05A4A","#fff"]};
+  const [bg,fg]=map[v]||["#0D0F0D","#E8EDE7"];
+  const fs = v<100?cellSize*.42 : v<1000?cellSize*.36 : cellSize*.28;
+  return {bg,fg,fs};
+}
+function render(anim){
+  for(const t of tiles){
+    let el=els.get(t.id);
+    const [x,y]=xy(t.r,t.c);
+    if(!el){
+      el=document.createElement("div");
+      el.className="tile"+(anim==="spawn"&&t.fresh?" new":"");
+      els.set(t.id,el); board.appendChild(el);
+    }
+    const {bg,fg,fs}=tileStyle(t);
+    el.textContent=t.v;
+    el.style.width=cellSize+"px"; el.style.height=cellSize+"px";
+    el.style.background=bg; el.style.color=fg; el.style.fontSize=fs+"px";
+    el.style.transform="translate("+x+"px,"+y+"px)";
+    el.style.zIndex=t.dying?1:2;
+    if(t.bump){ el.classList.remove("merged"); void el.offsetWidth; el.classList.add("merged"); t.bump=false; }
+    t.fresh=false;
+  }
+  document.getElementById("score").textContent=score;
+  document.getElementById("best").textContent=best;
+  document.getElementById("undoBtn").style.opacity=prevState?1:.35;
+}
+function spawn(){
+  const empty=[];
+  const occ=new Set(tiles.map(t=>t.r+","+t.c));
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++) if(!occ.has(r+","+c)) empty.push([r,c]);
+  if(!empty.length) return;
+  const [r,c]=empty[Math.floor(Math.random()*empty.length)];
+  tiles.push({id:nextId++,r,c,v:Math.random()<0.9?2:4,fresh:true});
+}
+function save(){
+  try{
+    localStorage.setItem(KEY,JSON.stringify({tiles:tiles.map(t=>({r:t.r,c:t.c,v:t.v})),score}));
+    localStorage.setItem(BESTKEY,String(best));
+  }catch(e){}
+}
+function loadState(){
+  try{
+    best=parseInt(localStorage.getItem(BESTKEY)||"0",10)||0;
+    const r=localStorage.getItem(KEY);
+    if(r){
+      const d=JSON.parse(r);
+      if(d.tiles&&d.tiles.length){
+        tiles=d.tiles.map(t=>({id:nextId++,r:t.r,c:t.c,v:t.v}));
+        score=d.score||0;
+        return true;
+      }
+    }
+  }catch(e){}
+  return false;
+}
+function snapshot(){
+  return {tiles:tiles.map(t=>({r:t.r,c:t.c,v:t.v})),score};
+}
+function canMove(){
+  const g=Array.from({length:N},()=>Array(N).fill(0));
+  for(const t of tiles) g[t.r][t.c]=t.v;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    if(!g[r][c]) return true;
+    if(r+1<N&&g[r][c]===g[r+1][c]) return true;
+    if(c+1<N&&g[r][c]===g[r][c+1]) return true;
+  }
+  return false;
+}
+const vecs={left:[0,-1],right:[0,1],up:[-1,0],down:[1,0]};
+function move(dir){
+  if(moving||over) return;
+  const grid=Array.from({length:N},()=>Array(N).fill(null));
+  for(const t of tiles) grid[t.r][t.c]=t;
+  const [dr,dc]=vecs[dir];
+  const rIter=dir==="down"?[3,2,1,0]:[0,1,2,3];
+  const cIter=dir==="right"?[3,2,1,0]:[0,1,2,3];
+  let movedAny=false; const merges=[];
+  const snap=snapshot();
+  for(const r of rIter)for(const c of cIter){
+    const t=grid[r][c]; if(!t) continue;
+    let cr=r,cc=c,mergeWith=null;
+    for(;;){
+      const tr=cr+dr,tc=cc+dc;
+      if(tr<0||tr>=N||tc<0||tc>=N) break;
+      const o=grid[tr][tc];
+      if(!o){cr=tr;cc=tc;continue;}
+      if(o.v===t.v&&!o.willMerge&&!o.dying){mergeWith=o;}
+      break;
+    }
+    grid[r][c]=null;
+    if(mergeWith){
+      t.r=mergeWith.r;t.c=mergeWith.c;t.dying=true;
+      mergeWith.willMerge=true;
+      merges.push({from:t,into:mergeWith});
+      movedAny=true;
+    }else{
+      if(cr!==r||cc!==c) movedAny=true;
+      t.r=cr;t.c=cc;grid[cr][cc]=t;
+    }
+  }
+  if(!movedAny){ tiles.forEach(t=>t.willMerge=false); return; }
+  prevState=snap;
+  moving=true;
+  render();
+  setTimeout(()=>{
+    for(const m of merges){
+      m.into.v*=2; score+=m.into.v; m.into.bump=true; m.into.willMerge=false;
+      const el=els.get(m.from.id); if(el) el.remove(); els.delete(m.from.id);
+    }
+    tiles=tiles.filter(t=>!t.dying);
+    if(score>best) best=score;
+    spawn();
+    render("spawn");
+    save();
+    moving=false;
+    if(!canMove()){
+      over=true;
+      showOverlay("終了","SCORE "+score);
+    }else if(merges.some(m=>m.into.v===2048)&&!localStorage.getItem("game2048-won")){
+      try{localStorage.setItem("game2048-won","1")}catch(e){}
+      showOverlay("2048 達成","このまま続行もできる");
+      setTimeout(()=>hideOverlay(),1800);
+    }
+  },115);
+}
+function undo(){
+  if(!prevState||moving) return;
+  for(const el of els.values()) el.remove();
+  els.clear();
+  tiles=prevState.tiles.map(t=>({id:nextId++,r:t.r,c:t.c,v:t.v}));
+  score=prevState.score;
+  prevState=null; over=false; hideOverlay();
+  render(); save();
+}
+function showOverlay(t,s){
+  document.getElementById("ovtext").textContent=t;
+  document.getElementById("ovsub").textContent=s;
+  document.getElementById("overlay").classList.add("show");
+}
+function hideOverlay(){document.getElementById("overlay").classList.remove("show");}
+function newGame(){
+  for(const el of els.values()) el.remove();
+  els.clear();
+  tiles=[];score=0;over=false;prevState=null;hideOverlay();
+  spawn();spawn();
+  render("spawn");save();
+}
+
+/* 入力 */
+let tsx=0,tsy=0;
+board.addEventListener("touchstart",e=>{
+  tsx=e.touches[0].clientX; tsy=e.touches[0].clientY;
+},{passive:true});
+board.addEventListener("touchend",e=>{
+  const dx=e.changedTouches[0].clientX-tsx, dy=e.changedTouches[0].clientY-tsy;
+  if(Math.max(Math.abs(dx),Math.abs(dy))<28) return;
+  if(Math.abs(dx)>Math.abs(dy)) move(dx>0?"right":"left");
+  else move(dy>0?"down":"up");
+});
+window.addEventListener("keydown",e=>{
+  const k={ArrowLeft:"left",ArrowRight:"right",ArrowUp:"up",ArrowDown:"down"}[e.key];
+  if(k){e.preventDefault();move(k);}
+});
+window.addEventListener("resize",()=>{
+  board.querySelectorAll(".bg").forEach(el=>el.remove());
+  buildBg(); render();
+});
+
+buildBg();
+if(!loadState()){ spawn(); spawn(); }
+render("spawn");
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js").catch(()=>{}); }
+</script>
+</body>
+</html>

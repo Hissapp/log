@@ -1,5 +1,9 @@
-const CACHE = "koudoulog-v1";
-const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-180.png", "./icon-512.png"];
+const CACHE = "koudoulog-v2";
+const ASSETS = [
+  "./", "./index.html", "./manifest.json", "./icon-180.png", "./icon-512.png",
+  "./2048.html", "./icon-2048.png",
+  "./sudoku.html", "./icon-sudoku.png"
+];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
   self.skipWaiting();

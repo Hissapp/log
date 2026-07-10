@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>数独</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="数独">
+<meta name="theme-color" content="#F7F7F5">
+<link rel="apple-touch-icon" href="./icon-sudoku.png">
+<link rel="icon" href="./icon-sudoku.png">
+<style>
+:root{--ink:#1A1D1A;--sub:#8A8F88;--line:#C9CFC7;--thick:#1A1D1A;
+  --accent:#3D6B4F;--accent-soft:#EAF0EC;--same:#DFE8E2;--danger:#A94438;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+body{margin:0;background:#F7F7F5;color:var(--ink);
+  font-family:'Hiragino Sans','Yu Gothic',system-ui,sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  padding:calc(env(safe-area-inset-top) + 16px) 12px 30px}
+.top{width:min(94vw,400px);display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+h1{font-size:18px;margin:0;letter-spacing:.1em}
+#timer{font-family:var(--mono);font-size:15px;color:var(--sub)}
+.diffs{width:min(94vw,400px);display:flex;gap:6px;margin-bottom:12px}
+.dbtn{flex:1;border:1px solid var(--line);background:#fff;color:var(--sub);
+  border-radius:9px;padding:8px 0;font-size:13px;cursor:pointer;font-family:inherit}
+.dbtn.on{border-color:var(--accent);background:var(--accent);color:#fff;font-weight:600}
+#grid{display:grid;grid-template-columns:repeat(9,1fr);width:min(94vw,400px);
+  aspect-ratio:1;border:2.5px solid var(--thick);background:#fff}
+.cell{border:.5px solid var(--line);display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-weight:700;cursor:pointer;position:relative;padding:0;background:#fff;color:var(--accent)}
+.cell.given{color:var(--ink)}
+.cell.br{border-right:2px solid var(--thick)}
+.cell.bb{border-bottom:2px solid var(--thick)}
+.cell.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent)}
+.cell.same{background:var(--same)}
+.cell.bad{color:var(--danger)}
+.notes{position:absolute;inset:1px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)}
+.notes span{font-size:8.5px;font-weight:400;color:var(--sub);display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+.pad{width:min(94vw,400px);display:grid;grid-template-columns:repeat(9,1fr);gap:5px;margin-top:14px}
+.num{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 0 6px;
+  font-family:var(--mono);font-size:19px;font-weight:700;color:var(--ink);cursor:pointer;line-height:1.1}
+.num small{display:block;font-size:9px;font-weight:400;color:var(--sub)}
+.num.done{opacity:.3}
+.tools{width:min(94vw,400px);display:flex;gap:6px;margin-top:8px}
+.tool{flex:1;border:1px solid var(--line);background:#fff;color:var(--ink);
+  border-radius:9px;padding:10px 0;font-size:13px;cursor:pointer;font-family:inherit}
+.tool.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+#msg{margin-top:14px;font-size:13px;color:var(--sub);min-height:18px;text-align:center}
+#done{position:fixed;inset:0;background:rgba(26,29,26,.55);display:none;align-items:center;justify-content:center;z-index:9}
+#done.show{display:flex}
+.card{background:#fff;border-radius:16px;padding:26px 30px;text-align:center}
+.card h2{margin:0 0 6px;font-size:20px}
+.card p{margin:0 0 16px;color:var(--sub);font-family:var(--mono)}
+.obtn{border:none;background:var(--accent);color:#fff;border-radius:10px;padding:11px 22px;font-size:15px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="top"><h1>数独</h1><div id="timer">0:00</div></div>
+<div class="diffs">
+  <button class="dbtn" data-d="easy" onclick="newPuzzle('easy')">やさしい</button>
+  <button class="dbtn" data-d="normal" onclick="newPuzzle('normal')">ふつう</button>
+  <button class="dbtn" data-d="hard" onclick="newPuzzle('hard')">むずかしい</button>
+</div>
+<div id="grid"></div>
+<div class="pad" id="pad"></div>
+<div class="tools">
+  <button class="tool" id="noteBtn" onclick="toggleNote()">メモ ✎</button>
+  <button class="tool" onclick="erase()">消す</button>
+  <button class="tool" onclick="if(confirm('新しい問題を生成する?'))newPuzzle(S.diff)">新しい問題</button>
+</div>
+<div id="msg"></div>
+<div id="done"><div class="card"><h2>完成</h2><p id="doneTime"></p><button class="obtn" onclick="newPuzzle(S.diff)">次の問題</button></div></div>
+
+<script>
+"use strict";
+const KEY="sudoku-v1";
+const REMOVE={easy:40,normal:48,hard:54};
+const S={puzzle:null,solution:null,vals:null,notes:null,sel:-1,note:false,diff:"normal",elapsed:0,done:false};
+let timerIv=null,lastTick=0;
+
+/* ---- ソルバ・生成 ---- */
+const boxOf=i=>Math.floor(Math.floor(i/9)/3)*3+Math.floor((i%9)/3);
+function masks(g){
+  const row=Array(9).fill(0),col=Array(9).fill(0),box=Array(9).fill(0);
+  for(let i=0;i<81;i++) if(g[i]){
+    const b=1<<g[i];
+    row[Math.floor(i/9)]|=b; col[i%9]|=b; box[boxOf(i)]|=b;
+  }
+  return {row,col,box};
+}
+function fill(g){
+  const {row,col,box}=masks(g);
+  function bt(){
+    let bestI=-1,bestC=null;
+    for(let i=0;i<81;i++) if(!g[i]){
+      const used=row[Math.floor(i/9)]|col[i%9]|box[boxOf(i)];
+      const cand=[];
+      for(let v=1;v<=9;v++) if(!(used&(1<<v))) cand.push(v);
+      if(!cand.length) return false;
+      if(bestC===null||cand.length<bestC.length){bestI=i;bestC=cand;if(cand.length===1)break;}
+    }
+    if(bestI===-1) return true;
+    for(let k=bestC.length-1;k>0;k--){const j=Math.floor(Math.random()*(k+1));[bestC[k],bestC[j]]=[bestC[j],bestC[k]];}
+    const r=Math.floor(bestI/9),c=bestI%9,b=boxOf(bestI);
+    for(const v of bestC){
+      g[bestI]=v;const m=1<<v;row[r]|=m;col[c]|=m;box[b]|=m;
+      if(bt())return true;
+      g[bestI]=0;row[r]&=~m;col[c]&=~m;box[b]&=~m;
+    }
+    return false;
+  }
+  bt(); return g;
+}
+function countSolutions(g,limit){
+  const {row,col,box}=masks(g);
+  let count=0;
+  function bt(){
+    if(count>=limit) return;
+    let bestI=-1,bestC=null;
+    for(let i=0;i<81;i++) if(!g[i]){
+      const used=row[Math.floor(i/9)]|col[i%9]|box[boxOf(i)];
+      const cand=[];
+      for(let v=1;v<=9;v++) if(!(used&(1<<v))) cand.push(v);
+      if(!cand.length) return;
+      if(bestC===null||cand.length<bestC.length){bestI=i;bestC=cand;if(cand.length===1)break;}
+    }
+    if(bestI===-1){count++;return;}
+    const r=Math.floor(bestI/9),c=bestI%9,b=boxOf(bestI);
+    for(const v of bestC){
+      g[bestI]=v;const m=1<<v;row[r]|=m;col[c]|=m;box[b]|=m;
+      bt();
+      g[bestI]=0;row[r]&=~m;col[c]&=~m;box[b]&=~m;
+      if(count>=limit) return;
+    }
+  }
+  bt(); return count;
+}
+function generate(diff){
+  const g=fill(Array(81).fill(0));
+  const solution=g.slice();
+  const idx=[...Array(81).keys()];
+  for(let k=80;k>0;k--){const j=Math.floor(Math.random()*(k+1));[idx[k],idx[j]]=[idx[j],idx[k]];}
+  let removed=0;
+  for(const i of idx){
+    if(removed>=REMOVE[diff]) break;
+    const bak=g[i]; g[i]=0;
+    if(countSolutions(g.slice(),2)!==1){ g[i]=bak; } else removed++;
+  }
+  return {puzzle:g.slice(),solution};
+}
+
+/* ---- 保存 ---- */
+function save(){
+  try{localStorage.setItem(KEY,JSON.stringify({
+    puzzle:S.puzzle,solution:S.solution,vals:S.vals,notes:S.notes,
+    diff:S.diff,elapsed:S.elapsed,done:S.done
+  }));}catch(e){}
+}
+function loadState(){
+  try{
+    const r=localStorage.getItem(KEY);
+    if(r){
+      const d=JSON.parse(r);
+      if(d.puzzle&&d.solution){Object.assign(S,d);S.sel=-1;S.note=false;return true;}
+    }
+  }catch(e){}
+  return false;
+}
+
+/* ---- タイマー ---- */
+function startTimer(){
+  clearInterval(timerIv); lastTick=Date.now();
+  timerIv=setInterval(()=>{
+    if(S.done) return;
+    S.elapsed+=Date.now()-lastTick; lastTick=Date.now();
+    document.getElementById("timer").textContent=fmtT(S.elapsed);
+  },1000);
+}
+function fmtT(ms){
+  const s=Math.floor(ms/1000);
+  return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+}
+
+/* ---- 描画 ---- */
+const grid=document.getElementById("grid");
+function buildGrid(){
+  grid.innerHTML="";
+  for(let i=0;i<81;i++){
+    const b=document.createElement("button");
+    b.className="cell";
+    const r=Math.floor(i/9),c=i%9;
+    if(c===2||c===5) b.classList.add("br");
+    if(r===2||r===5) b.classList.add("bb");
+    b.onclick=()=>{S.sel=i;render();};
+    grid.appendChild(b);
+  }
+}
+function conflicts(){
+  const bad=new Set();
+  const units=[];
+  for(let r=0;r<9;r++) units.push([...Array(9).keys()].map(c=>r*9+c));
+  for(let c=0;c<9;c++) units.push([...Array(9).keys()].map(r=>r*9+c));
+  for(let br=0;br<3;br++)for(let bc=0;bc<3;bc++){
+    const u=[];
+    for(let r=0;r<3;r++)for(let c=0;c<3;c++) u.push((br*3+r)*9+bc*3+c);
+    units.push(u);
+  }
+  for(const u of units){
+    const seen={};
+    for(const i of u){
+      const v=S.vals[i]; if(!v) continue;
+      if(seen[v]!==undefined){bad.add(i);bad.add(seen[v]);}
+      seen[v]=i;
+    }
+  }
+  return bad;
+}
+function render(){
+  const cs=grid.children;
+  const bad=conflicts();
+  const selVal=S.sel>=0?S.vals[S.sel]:0;
+  const counts=Array(10).fill(0);
+  for(let i=0;i<81;i++) counts[S.vals[i]]++;
+  const fs=Math.round(grid.clientWidth/9*0.5);
+  for(let i=0;i<81;i++){
+    const b=cs[i], v=S.vals[i];
+    b.classList.toggle("given",!!S.puzzle[i]);
+    b.classList.toggle("sel",i===S.sel);
+    b.classList.toggle("same",v!==0&&v===selVal&&i!==S.sel);
+    b.classList.toggle("bad",bad.has(i));
+    b.style.fontSize=fs+"px";
+    if(v){ b.innerHTML=""; b.textContent=v; }
+    else if(S.notes[i]){
+      let h='<span class="notes">';
+      for(let n=1;n<=9;n++) h+="<span>"+((S.notes[i]>>n)&1?n:"")+"</span>";
+      b.innerHTML=h+"</span>";
+    } else b.innerHTML="";
+  }
+  const pad=document.getElementById("pad");
+  pad.innerHTML="";
+  for(let n=1;n<=9;n++){
+    const btn=document.createElement("button");
+    btn.className="num"+(counts[n]>=9?" done":"");
+    btn.innerHTML=n+"<small>残"+Math.max(0,9-counts[n])+"</small>";
+    btn.onclick=()=>input(n);
+    pad.appendChild(btn);
+  }
+  document.getElementById("noteBtn").classList.toggle("on",S.note);
+  document.getElementById("timer").textContent=fmtT(S.elapsed);
+  document.querySelectorAll(".dbtn").forEach(d=>d.classList.toggle("on",d.dataset.d===S.diff));
+}
+function toggleNote(){S.note=!S.note;render();}
+function input(n){
+  if(S.sel<0||S.puzzle[S.sel]||S.done) return;
+  if(S.note){
+    S.notes[S.sel]^=(1<<n); S.vals[S.sel]=0;
+  }else{
+    S.vals[S.sel]=S.vals[S.sel]===n?0:n;
+    S.notes[S.sel]=0;
+  }
+  save(); render(); checkDone();
+}
+function erase(){
+  if(S.sel<0||S.puzzle[S.sel]||S.done) return;
+  S.vals[S.sel]=0; S.notes[S.sel]=0;
+  save(); render();
+}
+function checkDone(){
+  for(let i=0;i<81;i++) if(S.vals[i]!==S.solution[i]) return;
+  S.done=true; save();
+  document.getElementById("doneTime").textContent="タイム "+fmtT(S.elapsed);
+  document.getElementById("done").classList.add("show");
+}
+function newPuzzle(diff){
+  document.getElementById("done").classList.remove("show");
+  document.getElementById("msg").textContent="問題を生成中…";
+  setTimeout(()=>{
+    const {puzzle,solution}=generate(diff);
+    S.puzzle=puzzle; S.solution=solution;
+    S.vals=puzzle.slice(); S.notes=Array(81).fill(0);
+    S.sel=-1; S.note=false; S.diff=diff; S.elapsed=0; S.done=false;
+    save(); render(); startTimer();
+    document.getElementById("msg").textContent="";
+  },30);
+}
+
+buildGrid();
+if(loadState()&&!S.done){ render(); startTimer(); }
+else newPuzzle("normal");
+window.addEventListener("resize",render);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) lastTick=Date.now(); });
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js").catch(()=>{}); }
+</script>
+</body>
+</html>
