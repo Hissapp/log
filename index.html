@@ -82,6 +82,10 @@ h1{font-size:17px;font-weight:700;margin:0;letter-spacing:.08em}
 .moodbtn{height:38px;border-radius:8px;font-family:var(--mono);font-size:14px;font-weight:700;
   cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink)}
 .delbtn{border:none;background:transparent;color:var(--danger);font-size:13px;cursor:pointer}
+.notearea{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;
+  font-family:inherit;background:#fff;color:var(--ink);width:100%;resize:vertical;outline:none}
+.rnote{font-size:12.5px;color:var(--sub);margin:-4px 4px 6px 85px;line-height:1.5;
+  white-space:pre-wrap;word-break:break-word;cursor:pointer}
 .empty{text-align:center;padding:48px 16px;color:var(--sub);font-size:14px}
 .panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:16px}
 .ptitle{font-size:13px;font-weight:700;letter-spacing:.06em}
@@ -147,6 +151,7 @@ const S = {
   view: "log", selectedDay: dateKey(Date.now()),
   calY: now0.getFullYear(), calM: now0.getMonth(),
   range: 30, expandedId: null, editMode: false, newDaily: false,
+  compOpen: false, compMood: null, compDaily: false, draftText: "",
   storageOk: true
 };
 
@@ -157,7 +162,7 @@ function load(){
     const r = localStorage.getItem(KEY);
     if(r){
       const d = JSON.parse(r);
-      let es = (Array.isArray(d.entries)?d.entries:[]).map(e=>({...e,daily:!!e.daily,mood:typeof e.mood==="number"?e.mood:null}));
+      let es = (Array.isArray(d.entries)?d.entries:[]).map(e=>({...e,daily:!!e.daily,mood:typeof e.mood==="number"?e.mood:null,note:typeof e.note==="string"?e.note:""}));
       if((d.v||1)<2) es = es.map(e=>e.mood!==null?{...e,mood:(e.mood+1)*2}:e);
       S.entries = es;
       const ps = (Array.isArray(d.presets)?d.presets:[]).map(p=>typeof p==="string"?{label:p,daily:p==="起床"||p==="就寝"}:{label:p.label,daily:!!p.daily});
@@ -195,30 +200,78 @@ function toast(msg){
   t.textContent=msg; t.style.display="block";
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.display="none",1600);
 }
-function addEntry(text,daily){
-  const t=(text||"").trim(); if(!t) return;
-  const e={id:Date.now()+"-"+Math.random().toString(36).slice(2,6),text:t,ts:Date.now(),daily:!!daily,mood:null};
+function addEntry(text,daily,opts){
+  opts=opts||{};
+  const t=(text||"").trim(); if(!t) return false;
+  const e={id:Date.now()+"-"+Math.random().toString(36).slice(2,6),text:t,
+    ts:(typeof opts.ts==="number"?opts.ts:Date.now()),daily:!!daily,
+    mood:(typeof opts.mood==="number"?opts.mood:null),note:(opts.note||"").trim()};
   S.entries.push(e); save();
   if(dateKey(e.ts)!==S.selectedDay) S.selectedDay=dateKey(e.ts);
   toast(fmtTime(e.ts)+" "+t); render();
+  return true;
 }
+function readComposer(){
+  if(!S.compOpen) return {};
+  const d=document.getElementById("compDate"), ti=document.getElementById("compTime"), n=document.getElementById("compNote");
+  const o={mood:S.compMood, note:n?n.value:""};
+  if(d && d.value) o.ts = tsFrom(d.value,(ti&&ti.value)?ti.value:fmtTime(Date.now()));
+  return o;
+}
+function resetComposer(){ S.compMood=null; S.compDaily=false; }
 function submitInput(){
-  const inp=document.getElementById("mainInput");
-  addEntry(inp.value,false); if(inp) inp.value="";
+  const inp=document.getElementById("mainInput"); if(!inp) return;
+  const txt=inp.value; if(!(txt||"").trim()) return;
+  const o=readComposer(), daily=S.compOpen?S.compDaily:false;
+  S.draftText=""; resetComposer();
+  addEntry(txt,daily,o);
 }
-function logPreset(i){ const p=S.presets[i]; if(p) addEntry(p.label,p.daily); }
+function toggleComposer(){
+  const inp=document.getElementById("mainInput");
+  if(inp) S.draftText = inp.value;
+  S.compOpen = !S.compOpen; render();
+}
+function setCompMood(v){
+  S.compMood = S.compMood===v ? null : v;
+  document.querySelectorAll("#compMood .moodbtn").forEach((b,i)=>{
+    const val=i+1, on=S.compMood===val;
+    b.setAttribute("style", on?"background:"+moodColor(val)+";border-color:"+moodColor(val)+";color:#fff":"");
+  });
+}
+function toggleCompDaily(){
+  S.compDaily = !S.compDaily;
+  const b=document.getElementById("compDailyBtn");
+  if(b) b.className = "mini"+(S.compDaily?" on":"");
+}
+function logPreset(i){
+  const p=S.presets[i]; if(!p) return;
+  const inp=document.getElementById("mainInput");
+  if(inp) S.draftText = inp.value;
+  const o=readComposer(); resetComposer();
+  addEntry(p.label,p.daily,o);
+}
 function toggleExpand(id){ S.expandedId = S.expandedId===id?null:id; render(); }
 function setMood(id,v){
   const e=S.entries.find(x=>x.id===id); if(!e) return;
   e.mood = e.mood===v?null:v; save(); render();
 }
+/* 時刻変更では再描画しない:再描画するとOS標準のピッカーが
+   決定前に閉じてしまうため。表示はエディタを閉じたときに更新される */
 function setEntryDate(id,val){
   if(!val) return; const e=S.entries.find(x=>x.id===id); if(!e) return;
-  e.ts = tsFrom(val,fmtTime(e.ts)); save(); render();
+  e.ts = tsFrom(val,fmtTime(e.ts)); save();
 }
 function setEntryTime(id,val){
   if(!val) return; const e=S.entries.find(x=>x.id===id); if(!e) return;
-  e.ts = tsFrom(dateKey(e.ts),val); save(); render();
+  e.ts = tsFrom(dateKey(e.ts),val); save();
+}
+function setNote(id,val){
+  const e=S.entries.find(x=>x.id===id); if(!e) return;
+  e.note = val; save();
+}
+function toggleEntryDaily(id){
+  const e=S.entries.find(x=>x.id===id); if(!e) return;
+  e.daily = !e.daily; save(); render();
 }
 function delEntry(id){
   S.entries = S.entries.filter(x=>x.id!==id);
@@ -314,8 +367,27 @@ function render(){
 }
 function renderLog(m){
   let h = '<div class="inputrow">'
-    +'<input id="mainInput" placeholder="記録する…" onkeydown="if(event.key===\'Enter\')submitInput()">'
+    +'<input id="mainInput" placeholder="記録する…" value="'+esc(S.draftText||"")+'" onkeydown="if(event.key===\'Enter\')submitInput()">'
     +'<button class="recbtn" onclick="submitInput()">記録</button></div>';
+  h += '<div class="editrow" style="text-align:left;margin:-4px 0 10px"><button class="editlink" onclick="toggleComposer()">'
+    +(S.compOpen?"詳細入力を閉じる":"＋ 時刻・気分・詳細を指定して記録")+'</button></div>';
+  if(S.compOpen){
+    h += '<div class="editor" style="margin:0 0 14px 0">'
+      +'<div class="erow"><span class="elabel">時刻</span>'
+      +'<input type="date" id="compDate" class="dtinput" value="'+dateKey(Date.now())+'">'
+      +'<input type="time" id="compTime" class="dtinput" value="'+fmtTime(Date.now())+'"></div>'
+      +'<div class="erow"><span class="elabel">種別</span>'
+      +'<button id="compDailyBtn" class="mini'+(S.compDaily?" on":"")+'" onclick="toggleCompDaily()">毎日</button>'
+      +'<span style="font-size:12px;color:var(--sub)">オフ=自由イベント / オン=毎日のイベント</span></div>'
+      +'<div><div class="elabel" style="width:auto;margin-bottom:6px">気分(1〜10)</div><div class="moodgrid" id="compMood">';
+    for(let v=1;v<=10;v++){
+      const on=S.compMood===v;
+      h += '<button class="moodbtn" style="'+(on?"background:"+moodColor(v)+";border-color:"+moodColor(v)+";color:#fff":"")+'" onclick="setCompMood('+v+')">'+v+'</button>';
+    }
+    h += '</div></div>'
+      +'<textarea id="compNote" class="notearea" rows="2" placeholder="詳細メモ(気分の理由など)"></textarea>'
+      +'<div style="font-size:11px;color:var(--sub)">「記録」またはプリセットボタンを押すと、この内容も一緒に保存される</div></div>';
+  }
   h += '<div class="chips">';
   S.presets.forEach((p,i)=>{
     if(S.editMode){
@@ -356,17 +428,23 @@ function renderLog(m){
       +'<span class="rtext'+(e.daily?" daily":"")+'">'+esc(e.text)+'</span>'
       +(e.mood!==null?'<span class="mbadge" style="background:'+moodColor(e.mood)+'">'+e.mood+'</span>':"")
       +'</div>';
+    if(e.note) h += '<div class="rnote" onclick="toggleExpand(\''+e.id+'\')">'+esc(e.note)+'</div>';
     if(S.expandedId===e.id){
       h += '<div class="editor">'
         +'<div class="erow"><span class="elabel">時刻</span>'
         +'<input type="date" class="dtinput" value="'+dateKey(e.ts)+'" onchange="setEntryDate(\''+e.id+'\',this.value)">'
         +'<input type="time" class="dtinput" value="'+fmtTime(e.ts)+'" onchange="setEntryTime(\''+e.id+'\',this.value)"></div>'
+        +'<div class="erow"><span class="elabel">種別</span>'
+        +'<button class="mini'+(e.daily?" on":"")+'" onclick="toggleEntryDaily(\''+e.id+'\')">毎日</button>'
+        +'<span style="font-size:12px;color:var(--sub)">'+(e.daily?"毎日のイベント(件数集計に含めない)":"自由イベント(件数集計に含める)")+'</span></div>'
         +'<div><div class="elabel" style="width:auto;margin-bottom:6px">気分(1〜10)</div><div class="moodgrid">';
       for(let v=1;v<=10;v++){
         const on = e.mood===v;
         h += '<button class="moodbtn" style="'+(on?"background:"+moodColor(v)+";border-color:"+moodColor(v)+";color:#fff":"")+'" onclick="setMood(\''+e.id+'\','+v+')">'+v+'</button>';
       }
       h += '</div></div>'
+        +'<div><div class="elabel" style="width:auto;margin-bottom:6px">詳細</div>'
+        +'<textarea class="notearea" rows="2" placeholder="詳細メモ(気分の理由など)" oninput="setNote(\''+e.id+'\',this.value)">'+esc(e.note||"")+'</textarea></div>'
         +'<div style="text-align:right"><button class="delbtn" onclick="delEntry(\''+e.id+'\')">この記録を削除</button></div></div>';
     }
     h += '</div>';
