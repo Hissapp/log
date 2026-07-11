@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F7F7F5">
+<link rel="apple-touch-icon" href="icon-sprint.png">
+<title>暗算スプリント</title>
+<style>
+:root{
+  --paper:#F7F7F5; --ink:#1A1D1A; --green:#3D6B4F; --amber:#9A6A1E;
+  --line:#E5E7E3; --sub:#787D77; --bad:#B05A4A;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;
+  -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+  overscroll-behavior:none;
+}
+.app{
+  max-width:440px; margin:0 auto; min-height:100dvh;
+  display:flex; flex-direction:column;
+  padding:calc(env(safe-area-inset-top) + 16px) 20px calc(env(safe-area-inset-bottom) + 16px);
+}
+.screen{display:none; flex:1; flex-direction:column}
+.screen.on{display:flex}
+.label{font-size:11px; letter-spacing:.14em; color:var(--sub)}
+.mono{font-family:var(--mono); font-variant-numeric:tabular-nums}
+
+/* ---------- home ---------- */
+.head{padding:8px 0 14px; border-bottom:1px solid var(--line)}
+h1{font-size:19px; font-weight:600; letter-spacing:.02em}
+.head .label{margin-top:4px}
+.diffs{margin-top:18px; display:flex; flex-direction:column; gap:8px}
+.diff{
+  border:1px solid var(--line); border-radius:10px; background:transparent;
+  padding:12px 14px; display:flex; align-items:center; gap:12px;
+  font:inherit; color:inherit; text-align:left; width:100%;
+}
+.diff.sel{border-color:var(--green); box-shadow:inset 0 0 0 1px var(--green)}
+.diff .dot{
+  width:8px; height:8px; border-radius:50%; border:1.5px solid var(--sub); flex:none;
+}
+.diff.sel .dot{background:var(--green); border-color:var(--green)}
+.diff .dm{flex:1}
+.diff .dn{font-size:15px; font-weight:600}
+.diff .dd{font-size:12px; color:var(--sub); margin-top:2px}
+.diff .db{font-family:var(--mono); font-size:15px; color:var(--green)}
+.diff .db small{font-family:inherit; font-size:10px; color:var(--sub); display:block; text-align:right; letter-spacing:.1em}
+.startbtn{
+  margin-top:18px; width:100%; padding:15px; border:none; border-radius:10px;
+  background:var(--green); color:#fff; font-size:16px; font-weight:600; font-family:inherit;
+}
+.startbtn:active{opacity:.85}
+.hist{margin-top:26px}
+.hist .label{padding-bottom:8px; border-bottom:1px solid var(--line); display:block}
+.hrow{
+  display:flex; align-items:baseline; gap:10px; padding:9px 2px;
+  border-bottom:1px solid var(--line); font-size:13px;
+}
+.hrow .ht{font-family:var(--mono); font-size:12px; color:var(--sub); width:86px; flex:none}
+.hrow .hd{flex:1; color:var(--sub)}
+.hrow .hs{font-family:var(--mono); font-size:15px}
+.hrow .hs small{font-size:11px; color:var(--sub)}
+.empty{padding:14px 2px; font-size:13px; color:var(--sub)}
+
+/* ---------- countdown ---------- */
+#scr-count{align-items:center; justify-content:center}
+#cd{font-family:var(--mono); font-size:88px; color:var(--green)}
+
+/* ---------- play ---------- */
+.bar{height:3px; background:var(--line); border-radius:2px; overflow:hidden; margin-top:12px}
+.bar i{display:block; height:100%; width:100%; background:var(--green); border-radius:2px}
+.bar.warn i{background:var(--amber)}
+.stat{display:flex; justify-content:space-between; padding-top:10px}
+.stat .v{font-family:var(--mono); font-size:24px; margin-top:2px}
+.stat .r{text-align:right}
+#miss-v{color:var(--sub); font-size:15px; margin-left:8px}
+.field{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; min-height:180px}
+#q{font-family:var(--mono); font-size:44px; letter-spacing:.02em; white-space:nowrap}
+#inp{
+  font-family:var(--mono); font-size:36px; min-width:120px; text-align:center;
+  border-bottom:2px dotted var(--sub); padding:0 8px 4px; min-height:52px; color:var(--green);
+}
+#inp.ok{color:var(--green); border-bottom-color:var(--green)}
+#inp.ng{color:var(--bad); border-bottom-color:var(--bad); animation:shake .22s}
+@keyframes shake{
+  0%,100%{transform:translateX(0)} 25%{transform:translateX(-7px)}
+  50%{transform:translateX(6px)} 75%{transform:translateX(-4px)}
+}
+.pad{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding-top:6px}
+.pad button{
+  font-family:var(--mono); font-size:24px; color:var(--ink);
+  background:transparent; border:1px solid var(--line); border-radius:10px;
+  padding:16px 0; touch-action:manipulation;
+}
+.pad button:active{background:#ECEDEA}
+.pad .fn{font-size:17px; color:var(--sub)}
+#quitbtn{margin-top:12px; background:none; border:none; font:inherit; font-size:12px; color:var(--sub); letter-spacing:.1em; padding:6px}
+
+/* ---------- pause ---------- */
+#pause{
+  position:fixed; inset:0; background:rgba(247,247,245,.96); display:none;
+  align-items:center; justify-content:center; flex-direction:column; gap:20px; z-index:9;
+}
+#pause.on{display:flex}
+#pause p{font-size:14px; color:var(--sub); letter-spacing:.1em}
+#pause button{
+  border:1px solid var(--green); color:var(--green); background:none; border-radius:10px;
+  font:inherit; font-size:15px; font-weight:600; padding:12px 42px;
+}
+
+/* ---------- result ---------- */
+#scr-result{justify-content:center}
+.rcard{border:1px solid var(--line); border-radius:12px; padding:26px 22px; text-align:center}
+.rscore{font-family:var(--mono); font-size:64px; line-height:1; margin-top:8px}
+.rscore small{font-family:inherit; font-size:13px; color:var(--sub); margin-left:4px}
+.newbest{
+  display:inline-block; margin-top:10px; font-size:12px; letter-spacing:.12em;
+  color:var(--amber); border:1px solid var(--amber); border-radius:99px; padding:4px 12px;
+}
+.rrows{margin-top:20px; border-top:1px solid var(--line)}
+.rrow{display:flex; justify-content:space-between; padding:10px 2px; border-bottom:1px solid var(--line); font-size:13px}
+.rrow b{font-family:var(--mono); font-size:15px; font-weight:400}
+.rbtns{display:flex; flex-direction:column; gap:10px; margin-top:22px}
+.ghost{
+  width:100%; padding:14px; border-radius:10px; font:inherit; font-size:15px;
+  border:1px solid var(--line); background:none; color:var(--ink);
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ホーム -->
+  <section class="screen on" id="scr-home">
+    <div class="head">
+      <h1>暗算スプリント</h1>
+      <div class="label">60秒 でどこまで解けるか</div>
+    </div>
+    <div class="diffs" id="diffs"></div>
+    <button class="startbtn" id="startbtn">スタート</button>
+    <div class="hist">
+      <span class="label">きろく</span>
+      <div id="histbox"></div>
+    </div>
+  </section>
+
+  <!-- カウントダウン -->
+  <section class="screen" id="scr-count">
+    <div id="cd" class="mono">3</div>
+  </section>
+
+  <!-- プレイ -->
+  <section class="screen" id="scr-play">
+    <div class="stat">
+      <div><span class="label">のこり</span><div class="v" id="time-v">60</div></div>
+      <div class="r"><span class="label">せいかい / ミス</span>
+        <div class="v"><span id="score-v">0</span><span id="miss-v">0</span></div></div>
+    </div>
+    <div class="bar" id="bar"><i id="barfill"></i></div>
+    <div class="field">
+      <div id="q">12 + 34</div>
+      <div id="inp">&nbsp;</div>
+    </div>
+    <div class="pad">
+      <button data-d="7">7</button><button data-d="8">8</button><button data-d="9">9</button>
+      <button data-d="4">4</button><button data-d="5">5</button><button data-d="6">6</button>
+      <button data-d="1">1</button><button data-d="2">2</button><button data-d="3">3</button>
+      <button class="fn" id="clr">C</button><button data-d="0">0</button><button class="fn" id="bks">⌫</button>
+    </div>
+    <button id="quitbtn">やめる</button>
+  </section>
+
+  <!-- 結果 -->
+  <section class="screen" id="scr-result">
+    <div class="rcard">
+      <span class="label" id="rdiff">かんたん</span>
+      <div class="rscore" id="rscore">0<small>問</small></div>
+      <div><span class="newbest" id="newbest" style="display:none">自己ベスト更新</span></div>
+      <div class="rrows">
+        <div class="rrow"><span>ミス</span><b id="rmiss">0</b></div>
+        <div class="rrow"><span>正答率</span><b id="racc">—</b></div>
+        <div class="rrow"><span>ベスト</span><b id="rbest">0</b></div>
+      </div>
+      <div class="rbtns">
+        <button class="startbtn" id="againbtn" style="margin:0">もう一度</button>
+        <button class="ghost" id="homebtn">難易度を選ぶ</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- 一時停止 -->
+<div id="pause">
+  <p>いちじていし</p>
+  <button id="resumebtn">再開する</button>
+</div>
+
+<script>
+"use strict";
+/* ---------- 保存 ---------- */
+const LS = "mathsprint-v1";
+function load(){
+  try{
+    const s = JSON.parse(localStorage.getItem(LS));
+    if(s && s.v === 1) return s;
+  }catch(e){}
+  return {v:1, best:{easy:0, normal:0, hard:0}, hist:[]};
+}
+function persist(){ try{ localStorage.setItem(LS, JSON.stringify(store)); }catch(e){} }
+let store = load();
+
+/* ---------- 難易度と問題生成 ---------- */
+const DIFFS = [
+  {id:"easy",   label:"かんたん",   desc:"1桁のたし算・ひき算"},
+  {id:"normal", label:"ふつう",     desc:"2桁のたし算ひき算・九九"},
+  {id:"hard",   label:"むずかしい", desc:"2桁のかけ算・わり算・3項"}
+];
+let diff = "easy";
+
+function ri(a,b){ return a + Math.floor(Math.random()*(b-a+1)); }
+
+function makeProblem(d){
+  if(d === "easy"){
+    if(Math.random() < .5){
+      const a = ri(1,9), b = ri(1,9);
+      return {q:a+" + "+b, a:a+b};
+    }
+    let a = ri(1,9), b = ri(1,9);
+    if(a < b){ const t=a; a=b; b=t; }
+    return {q:a+" − "+b, a:a-b};
+  }
+  if(d === "normal"){
+    const r = Math.random();
+    if(r < .4){
+      const a = ri(10,99), b = ri(10,99);
+      return {q:a+" + "+b, a:a+b};
+    }
+    if(r < .8){
+      let a = ri(10,99), b = ri(10,99);
+      if(a < b){ const t=a; a=b; b=t; }
+      return {q:a+" − "+b, a:a-b};
+    }
+    const a = ri(2,9), b = ri(2,9);
+    return {q:a+" × "+b, a:a*b};
+  }
+  /* hard */
+  const r = Math.random();
+  if(r < .35){
+    const a = ri(12,99), b = ri(2,9);
+    return {q:a+" × "+b, a:a*b};
+  }
+  if(r < .7){
+    const b = ri(2,9), q = ri(3,29), a = b*q;
+    return {q:a+" ÷ "+b, a:q};
+  }
+  const a = ri(10,60), b = ri(10,60), c = ri(1, Math.min(99, a+b));
+  return {q:a+" + "+b+" − "+c, a:a+b-c};
+}
+
+let lastQ = "";
+function nextProblem(){
+  let p;
+  do{ p = makeProblem(diff); }while(p.q === lastQ);
+  lastQ = p.q;
+  return p;
+}
+
+/* ---------- 画面切替 ---------- */
+const scr = {
+  home:   document.getElementById("scr-home"),
+  count:  document.getElementById("scr-count"),
+  play:   document.getElementById("scr-play"),
+  result: document.getElementById("scr-result")
+};
+let state = "home";
+function show(name){
+  state = name;
+  for(const k in scr) scr[k].classList.toggle("on", k === name);
+}
+
+/* ---------- ホーム描画 ---------- */
+const diffBox = document.getElementById("diffs");
+function diffLabel(id){ const d = DIFFS.find(x=>x.id===id); return d ? d.label : id; }
+function renderHome(){
+  diffBox.innerHTML = "";
+  for(const d of DIFFS){
+    const b = document.createElement("button");
+    b.className = "diff" + (d.id === diff ? " sel" : "");
+    b.innerHTML =
+      '<span class="dot"></span>' +
+      '<span class="dm"><span class="dn">'+d.label+'</span><span class="dd" style="display:block">'+d.desc+'</span></span>' +
+      '<span class="db">'+(store.best[d.id]||0)+'<small>ベスト</small></span>';
+    b.addEventListener("click", ()=>{ diff = d.id; renderHome(); });
+    diffBox.appendChild(b);
+  }
+  const hb = document.getElementById("histbox");
+  hb.innerHTML = "";
+  if(!store.hist.length){
+    hb.innerHTML = '<div class="empty">まだ記録がない。最初の60秒をどうぞ。</div>';
+    return;
+  }
+  for(const h of store.hist.slice(0,5)){
+    const dt = new Date(h.ts);
+    const t = (dt.getMonth()+1)+"/"+dt.getDate()+" "+
+              String(dt.getHours()).padStart(2,"0")+":"+String(dt.getMinutes()).padStart(2,"0");
+    const row = document.createElement("div");
+    row.className = "hrow";
+    row.innerHTML = '<span class="ht">'+t+'</span><span class="hd">'+diffLabel(h.d)+'</span>'+
+                    '<span class="hs">'+h.score+'<small> 問 / ミス'+h.miss+'</small></span>';
+    hb.appendChild(row);
+  }
+}
+
+/* ---------- プレイ ---------- */
+const TIME = 60000;
+let remain, lastTick, raf = 0, running = false, paused = false;
+let score, miss, cur, ans;
+
+const elTime  = document.getElementById("time-v");
+const elScore = document.getElementById("score-v");
+const elMiss  = document.getElementById("miss-v");
+const elBar   = document.getElementById("bar");
+const elFill  = document.getElementById("barfill");
+const elQ     = document.getElementById("q");
+const elInp   = document.getElementById("inp");
+
+function startCountdown(){
+  show("count");
+  const cd = document.getElementById("cd");
+  let n = 3;
+  cd.textContent = n;
+  const iv = setInterval(()=>{
+    n--;
+    if(n <= 0){ clearInterval(iv); startPlay(); }
+    else cd.textContent = n;
+  }, 700);
+}
+
+function startPlay(){
+  remain = TIME; score = 0; miss = 0; cur = "";
+  running = true; paused = false;
+  elBar.classList.remove("warn");
+  setProblem();
+  renderStat(); renderTimer(); refreshInput();
+  show("play");
+  lastTick = performance.now();
+  raf = requestAnimationFrame(tick);
+}
+
+function setProblem(){
+  const p = nextProblem();
+  elQ.textContent = p.q;
+  ans = String(p.a);
+}
+
+function tick(now){
+  if(!running || paused) return;
+  remain -= (now - lastTick);
+  lastTick = now;
+  if(remain <= 0){ remain = 0; renderTimer(); finish(); return; }
+  renderTimer();
+  raf = requestAnimationFrame(tick);
+}
+
+function renderTimer(){
+  elTime.textContent = Math.ceil(remain/1000);
+  elFill.style.width = (remain/TIME*100) + "%";
+  elBar.classList.toggle("warn", remain <= 10000);
+}
+function renderStat(){
+  elScore.textContent = score;
+  elMiss.textContent = miss;
+}
+function refreshInput(){
+  elInp.textContent = cur || "\u00A0";
+}
+
+function press(d){
+  if(!running || paused) return;
+  if(cur.length >= 4) return;
+  cur += d;
+  elInp.classList.remove("ok","ng");
+  refreshInput();
+  if(cur.length >= ans.length){
+    if(cur === ans){
+      score++;
+      renderStat();
+      elInp.classList.add("ok");
+      cur = "";
+      setProblem();
+      setTimeout(refreshInput, 60);
+    }else{
+      miss++;
+      renderStat();
+      elInp.classList.add("ng");
+      cur = "";
+      setTimeout(()=>{ elInp.classList.remove("ng"); refreshInput(); }, 220);
+    }
+  }
+}
+
+document.querySelectorAll(".pad [data-d]").forEach(b=>{
+  b.addEventListener("click", ()=>press(b.dataset.d));
+});
+document.getElementById("clr").addEventListener("click", ()=>{
+  cur = ""; elInp.classList.remove("ok","ng"); refreshInput();
+});
+document.getElementById("bks").addEventListener("click", ()=>{
+  cur = cur.slice(0,-1); elInp.classList.remove("ok","ng"); refreshInput();
+});
+document.addEventListener("keydown", e=>{
+  if(state !== "play") return;
+  if(e.key >= "0" && e.key <= "9") press(e.key);
+  else if(e.key === "Backspace"){ cur = cur.slice(0,-1); refreshInput(); }
+});
+
+/* ---------- 一時停止 ---------- */
+const elPause = document.getElementById("pause");
+function pauseGame(){
+  if(!running || paused) return;
+  paused = true;
+  cancelAnimationFrame(raf);
+  elPause.classList.add("on");
+}
+document.getElementById("resumebtn").addEventListener("click", ()=>{
+  if(!paused) return;
+  paused = false;
+  elPause.classList.remove("on");
+  lastTick = performance.now();
+  raf = requestAnimationFrame(tick);
+});
+document.addEventListener("visibilitychange", ()=>{
+  if(document.hidden && state === "play") pauseGame();
+});
+document.getElementById("quitbtn").addEventListener("click", ()=>{
+  running = false;
+  cancelAnimationFrame(raf);
+  show("home");
+  renderHome();
+});
+
+/* ---------- 結果 ---------- */
+function finish(){
+  running = false;
+  cancelAnimationFrame(raf);
+  const isBest = score > (store.best[diff]||0);
+  if(isBest) store.best[diff] = score;
+  store.hist.unshift({ts:Date.now(), d:diff, score:score, miss:miss});
+  store.hist = store.hist.slice(0,30);
+  persist();
+
+  document.getElementById("rdiff").textContent = diffLabel(diff);
+  document.getElementById("rscore").innerHTML = score + "<small>問</small>";
+  document.getElementById("rmiss").textContent = miss;
+  document.getElementById("racc").textContent =
+    (score+miss) ? Math.round(score/(score+miss)*100) + "%" : "—";
+  document.getElementById("rbest").textContent = store.best[diff];
+  document.getElementById("newbest").style.display = isBest && score > 0 ? "inline-block" : "none";
+  show("result");
+}
+
+document.getElementById("startbtn").addEventListener("click", startCountdown);
+document.getElementById("againbtn").addEventListener("click", startCountdown);
+document.getElementById("homebtn").addEventListener("click", ()=>{ show("home"); renderHome(); });
+
+renderHome();
+
+/* ---------- Service Worker ---------- */
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
+</script>
+</body>
+</html>
