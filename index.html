@@ -86,8 +86,22 @@ h1{font-size:17px;font-weight:700;margin:0;letter-spacing:.08em}
   font-family:inherit;background:#fff;color:var(--ink);width:100%;resize:vertical;outline:none}
 .rnote{font-size:12.5px;color:var(--sub);margin:-4px 4px 6px 85px;line-height:1.5;
   white-space:pre-wrap;word-break:break-word;cursor:pointer}
-.rend{display:block;font-size:11px;color:var(--sub)}
 .rdur{font-size:11px;color:var(--sub);font-family:var(--mono);flex-shrink:0;margin:0 6px 0 8px}
+.gap{position:relative;display:flex;align-items:center}
+.gap::before{content:"";position:absolute;left:60px;top:3px;bottom:3px;width:5px;background:var(--bg)}
+.gap::after{content:"";position:absolute;left:62px;top:3px;bottom:3px;border-left:2px dotted #C4CAC2}
+.gapdur{margin-left:86px;font-size:11px;color:var(--sub);font-family:var(--mono)}
+.spantail{position:relative}
+.spantail::before{content:"";position:absolute;left:59px;top:-3px;bottom:-3px;width:7px;border-radius:4px;background:#BFD8C7}
+.spantail.daily::before{background:#E8D9B8}
+.spanend{display:flex;align-items:center;padding:2px 4px 10px}
+.rdot2{width:6px;height:6px;border-radius:999px;border:2px solid var(--accent);background:var(--bg);margin:0 13px 0 9px;flex-shrink:0}
+.rdot2.daily{border-color:var(--anchor)}
+.endword{font-size:11.5px;color:var(--sub)}
+.sleepblk{position:relative;display:flex;align-items:center}
+.sleepblk::before{content:"";position:absolute;left:59px;top:2px;bottom:2px;width:7px;border-radius:4px;
+  background:repeating-linear-gradient(180deg,#E8D9B8 0 6px,#F5EDDD 6px 12px)}
+.sleeplabel{margin-left:86px;font-size:12px;color:var(--anchor);font-family:var(--mono);font-weight:700}
 .tcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
 .tcard.today{border-color:var(--accent)}
 .thead{display:flex;align-items:baseline;gap:8px;cursor:pointer}
@@ -218,6 +232,21 @@ function moodAvg(m,k){
   const ms=(m.get(k)||[]).filter(e=>e.mood!==null).map(e=>e.mood);
   return ms.length ? ms.reduce((a,b)=>a+b,0)/ms.length : null;
 }
+/* 「就寝」→次の「起床」を自動ペアリングして睡眠時間を出す */
+function sleepBefore(e){
+  if(e.text!=="起床") return null;
+  let best=null;
+  for(const x of S.entries){
+    if(x.text==="就寝" && x.ts<e.ts && e.ts-x.ts<=20*3600000){
+      if(!best || x.ts>best.ts) best=x;
+    }
+  }
+  if(!best) return null;
+  // その就寝と今回の起床の間に別の起床があるなら、就寝はそちらとペア済み
+  if(S.entries.some(x=>x.text==="起床" && x.ts>best.ts && x.ts<e.ts)) return null;
+  return {from:best.ts, dur:e.ts-best.ts};
+}
+const clampH = (v,lo,hi) => Math.max(lo, Math.min(hi, Math.round(v)));
 
 /* ---------- 操作 ---------- */
 let toastTimer=null;
@@ -533,20 +562,37 @@ function renderLog(m){
 
   const fc = freeCount(m,S.selectedDay);
   const ma = moodAvg(m,S.selectedDay);
+  const list = (m.get(S.selectedDay)||[]).slice().sort((a,b)=>a.ts-b.ts);
+  let daySleep = null;
+  for(const e of list){ if(e.text==="起床"){ daySleep=sleepBefore(e); if(daySleep) break; } }
   h += '<div class="daynav"><button class="arrow" onclick="shiftDay(-1)">‹</button>'
     +'<div><div class="dtitle">'+dayLabel(S.selectedDay)+'</div>'
-    +'<div class="dsub">自由 '+fc+' 件'+(ma!==null?" · 気分 "+ma.toFixed(1):"")+'</div></div>'
+    +'<div class="dsub">自由 '+fc+' 件'+(ma!==null?" · 気分 "+ma.toFixed(1):"")+(daySleep?" · 睡眠 "+fmtDur(daySleep.dur):"")+'</div></div>'
     +'<div style="display:flex;align-items:center">'
     +(S.selectedDay!==dateKey(Date.now())?'<button class="today-link" onclick="goToday()">今日へ</button>':"")
     +'<button class="arrow" onclick="shiftDay(1)">›</button></div></div>';
 
-  const list = (m.get(S.selectedDay)||[]).slice().sort((a,b)=>a.ts-b.ts);
   if(list.length===0) return h+'<div class="empty">この日の記録はまだない</div>'+dataSection();
 
   h += '<div class="timeline"><div class="axis"></div>';
+  let prev = null;
   for(const e of list){
+    const slp = e.text==="起床" ? sleepBefore(e) : null;
+    if(slp){
+      const sh = clampH(slp.dur/60000/12, 30, 80);
+      h += '<div class="sleepblk" style="height:'+sh+'px"><span class="sleeplabel">睡眠 '+fmtDur(slp.dur)
+        +(dateKey(slp.from)!==S.selectedDay?'(前日 '+fmtTime(slp.from)+'〜)':'('+fmtTime(slp.from)+'〜)')
+        +'</span></div>';
+    }else if(prev){
+      const gapMs = e.ts - (prev.end||prev.ts);
+      if(gapMs >= 30*60000){
+        const gh = clampH(gapMs/60000/12, 22, 56);
+        h += '<div class="gap" style="height:'+gh+'px"><span class="gapdur">'+fmtDur(gapMs)+' あき</span></div>';
+      }
+    }
+    prev = e;
     h += '<div><div class="row" onclick="toggleExpand(\''+e.id+'\')">'
-      +'<span class="rtime">'+fmtTime(e.ts)+(e.end?'<span class="rend">'+fmtTime(e.end)+'</span>':"")+'</span>'
+      +'<span class="rtime">'+fmtTime(e.ts)+'</span>'
       +'<span class="rdot'+(e.daily?" daily":"")+'"></span>'
       +'<span class="rtext'+(e.daily?" daily":"")+'">'+esc(e.text)+'</span>'
       +(e.end?'<span class="rdur">'+fmtDur(e.end-e.ts)+'</span>':"")
@@ -575,6 +621,14 @@ function renderLog(m){
         +'<div><div class="elabel" style="width:auto;margin-bottom:6px">詳細</div>'
         +'<textarea class="notearea" rows="2" placeholder="詳細メモ(気分の理由など)" oninput="setNote(\''+e.id+'\',this.value)">'+esc(e.note||"")+'</textarea></div>'
         +'<div style="text-align:right"><button class="delbtn" onclick="delEntry(\''+e.id+'\')">この記録を削除</button></div></div>';
+    }
+    if(e.end){
+      const spH = clampH((e.end-e.ts)/60000/6, 10, 64);
+      h += '<div class="spantail'+(e.daily?" daily":"")+'" style="height:'+spH+'px"></div>'
+        +'<div class="spanend" onclick="toggleExpand(\''+e.id+'\')">'
+        +'<span class="rtime">'+fmtTime(e.end)+'</span>'
+        +'<span class="rdot2'+(e.daily?" daily":"")+'"></span>'
+        +'<span class="endword">'+esc(e.text)+' 終了</span></div>';
     }
     h += '</div>';
   }
