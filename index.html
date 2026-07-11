@@ -152,6 +152,7 @@ const S = {
   calY: now0.getFullYear(), calM: now0.getMonth(),
   range: 30, expandedId: null, editMode: false, newDaily: false,
   compOpen: false, compMood: null, compDaily: false, draftText: "",
+  dataOpen: false,
   storageOk: true
 };
 
@@ -303,6 +304,48 @@ function addPreset(){
 function delPreset(i){ S.presets.splice(i,1); save(); render(); }
 function toggleDaily(i){ S.presets[i].daily=!S.presets[i].daily; save(); render(); }
 
+/* ---------- エクスポート / インポート ---------- */
+function toggleData(){ S.dataOpen=!S.dataOpen; render(); }
+function exportData(){
+  const json = JSON.stringify({v:2,entries:S.entries,presets:S.presets});
+  const ta = document.getElementById("dataArea");
+  if(ta) ta.value = json;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(json)
+      .then(()=>toast("全データ("+S.entries.length+"件)をコピーした"))
+      .catch(()=>toast("下の欄に出したので、長押しで全選択してコピーして"));
+  }else{
+    toast("下の欄に出したので、長押しで全選択してコピーして");
+  }
+}
+function importData(){
+  const ta = document.getElementById("dataArea");
+  if(!ta || !ta.value.trim()){ toast("エクスポートしたテキストを貼り付けてから押して"); return; }
+  let d;
+  try{ d = JSON.parse(ta.value); }
+  catch(e){ toast("読み取れない:テキストが途中で欠けていないか確認して"); return; }
+  if(!d || !Array.isArray(d.entries)){ toast("読み取れない:このアプリのデータ形式ではない"); return; }
+  let es = d.entries.map(e=>({
+    id:String(e.id||""), text:String(e.text||""), ts:Number(e.ts),
+    daily:!!e.daily, mood:typeof e.mood==="number"?e.mood:null,
+    note:typeof e.note==="string"?e.note:""
+  })).filter(e=>e.id && e.text && isFinite(e.ts));
+  if((d.v||1)<2) es = es.map(e=>e.mood!==null?{...e,mood:(e.mood+1)*2}:e);
+  const have = new Set(S.entries.map(e=>e.id));
+  const added = es.filter(e=>!have.has(e.id));
+  S.entries = S.entries.concat(added);
+  if(Array.isArray(d.presets)){
+    const pl = new Set(S.presets.map(p=>p.label));
+    d.presets.forEach(p=>{
+      const q = typeof p==="string" ? {label:p,daily:false} : {label:String(p.label||""),daily:!!p.daily};
+      if(q.label && !pl.has(q.label)){ S.presets.push(q); pl.add(q.label); }
+    });
+  }
+  save();
+  toast(added.length+"件を取り込んだ(重複 "+(es.length-added.length)+" 件はスキップ)");
+  render();
+}
+
 /* ---------- SVGグラフ ---------- */
 function lineChartSVG(data,min,max,color){
   const W=340,H=130,L=26,R=8,T=10,B=20,iw=W-L-R,ih=H-T-B,n=data.length;
@@ -418,7 +461,7 @@ function renderLog(m){
     +'<button class="arrow" onclick="shiftDay(1)">›</button></div></div>';
 
   const list = (m.get(S.selectedDay)||[]).slice().sort((a,b)=>a.ts-b.ts);
-  if(list.length===0) return h+'<div class="empty">この日の記録はまだない</div>';
+  if(list.length===0) return h+'<div class="empty">この日の記録はまだない</div>'+dataSection();
 
   h += '<div class="timeline"><div class="axis"></div>';
   for(const e of list){
@@ -449,7 +492,22 @@ function renderLog(m){
     }
     h += '</div>';
   }
-  return h+'</div>';
+  return h+'</div>'+dataSection();
+}
+function dataSection(){
+  let h = '<div class="editrow" style="text-align:center;margin-top:28px"><button class="editlink" onclick="toggleData()">'
+    +(S.dataOpen?"データ管理を閉じる":"データのエクスポート / インポート")+'</button></div>';
+  if(S.dataOpen){
+    h += '<div class="editor" style="margin:0">'
+      +'<div style="font-size:12px;color:var(--sub);line-height:1.6">'
+      +'<b>エクスポート</b>:全記録を1つのテキストとしてコピーする。<br>'
+      +'<b>インポート</b>:コピーしたテキストを下に貼り付けて取り込む。同じ記録は重複せず、既存のデータも消えない。</div>'
+      +'<textarea id="dataArea" class="notearea" rows="3" placeholder="ここに貼り付けてインポート"></textarea>'
+      +'<div class="erow" style="justify-content:flex-end;gap:10px">'
+      +'<button class="addp" style="background:transparent;color:var(--ink);border:1px solid var(--line)" onclick="exportData()">エクスポート(コピー)</button>'
+      +'<button class="addp" onclick="importData()">インポート</button></div></div>';
+  }
+  return h;
 }
 function renderCal(m){
   const firstWd = new Date(S.calY,S.calM,1).getDay();
