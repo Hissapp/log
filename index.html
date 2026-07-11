@@ -25,11 +25,11 @@ body{margin:0;background:var(--bg);color:var(--ink);
   padding-top:env(safe-area-inset-top)}
 #wrap{max-width:560px;margin:0 auto;padding:20px 16px 90px}
 button{font-family:inherit}
-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px}
 h1{font-size:17px;font-weight:700;margin:0;letter-spacing:.08em}
 .tabs{display:flex;gap:2px;background:#EDEEE9;border-radius:10px;padding:3px}
 .tab{border:none;background:transparent;color:var(--sub);border-radius:8px;
-  padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}
+  padding:6px 9px;font-size:12.5px;font-weight:600;cursor:pointer}
 .tab.on{background:var(--ink);color:#fff}
 .banner{background:#FBEFE9;border:1px solid var(--danger);color:var(--danger);
   border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px;line-height:1.5}
@@ -86,6 +86,18 @@ h1{font-size:17px;font-weight:700;margin:0;letter-spacing:.08em}
   font-family:inherit;background:#fff;color:var(--ink);width:100%;resize:vertical;outline:none}
 .rnote{font-size:12.5px;color:var(--sub);margin:-4px 4px 6px 85px;line-height:1.5;
   white-space:pre-wrap;word-break:break-word;cursor:pointer}
+.rend{display:block;font-size:11px;color:var(--sub)}
+.rdur{font-size:11px;color:var(--sub);font-family:var(--mono);flex-shrink:0;margin:0 6px 0 8px}
+.tcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.tcard.today{border-color:var(--accent)}
+.thead{display:flex;align-items:baseline;gap:8px;cursor:pointer}
+.tdate{font-size:16px;font-weight:700;font-family:var(--mono)}
+.twd{font-size:12px;color:var(--sub)}
+.tmeta{margin-left:auto;font-size:11px;color:var(--sub);font-family:var(--mono);display:flex;gap:8px;align-items:baseline}
+.tprev{font-size:13.5px;color:var(--sub);margin-top:7px;line-height:1.6;cursor:pointer;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.tarea{margin-top:10px}
+.chev{font-size:10px}
 .empty{text-align:center;padding:48px 16px;color:var(--sub);font-size:14px}
 .panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:16px}
 .ptitle{font-size:13px;font-weight:700;letter-spacing:.06em}
@@ -116,6 +128,7 @@ svg{width:100%;height:auto;display:block}
       <button class="tab" id="tab-log" onclick="setView('log')">ログ</button>
       <button class="tab" id="tab-cal" onclick="setView('cal')">カレンダー</button>
       <button class="tab" id="tab-graph" onclick="setView('graph')">グラフ</button>
+      <button class="tab" id="tab-th" onclick="setView('th')">思考</button>
     </div>
   </header>
   <div id="banner"></div>
@@ -143,6 +156,10 @@ const tsFrom = (ds,tstr) => {
   return new Date(y,m-1,d,h||0,mi||0).getTime();
 };
 const moodColor = v => v>=7 ? "var(--accent)" : v>=4 ? "var(--mood-mid)" : "var(--mood-low)";
+const fmtDur = ms => {
+  const m=Math.round(ms/60000), h=Math.floor(m/60), mm=m%60;
+  return h ? h+"時間"+(mm?mm+"分":"") : mm+"分";
+};
 const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 const now0 = new Date();
@@ -152,7 +169,8 @@ const S = {
   calY: now0.getFullYear(), calM: now0.getMonth(),
   range: 30, expandedId: null, editMode: false, newDaily: false,
   compOpen: false, compMood: null, compDaily: false, draftText: "",
-  dataOpen: false,
+  dataOpen: false, thoughts: {}, thoughtOpen: null,
+  thY: now0.getFullYear(), thM: now0.getMonth(),
   storageOk: true
 };
 
@@ -163,9 +181,16 @@ function load(){
     const r = localStorage.getItem(KEY);
     if(r){
       const d = JSON.parse(r);
-      let es = (Array.isArray(d.entries)?d.entries:[]).map(e=>({...e,daily:!!e.daily,mood:typeof e.mood==="number"?e.mood:null,note:typeof e.note==="string"?e.note:""}));
+      let es = (Array.isArray(d.entries)?d.entries:[]).map(e=>({...e,daily:!!e.daily,mood:typeof e.mood==="number"?e.mood:null,note:typeof e.note==="string"?e.note:"",end:typeof e.end==="number"?e.end:null}));
       if((d.v||1)<2) es = es.map(e=>e.mood!==null?{...e,mood:(e.mood+1)*2}:e);
       S.entries = es;
+      if(d.thoughts && typeof d.thoughts==="object" && !Array.isArray(d.thoughts)){
+        for(const k in d.thoughts){
+          const v = d.thoughts[k];
+          if(typeof v==="string"){ if(v.trim()) S.thoughts[k]={t:v,up:0}; }
+          else if(v && typeof v.t==="string" && v.t.trim()) S.thoughts[k]={t:v.t,up:v.up||0};
+        }
+      }
       const ps = (Array.isArray(d.presets)?d.presets:[]).map(p=>typeof p==="string"?{label:p,daily:p==="起床"||p==="就寝"}:{label:p.label,daily:!!p.daily});
       if(ps.length) S.presets = ps;
     }
@@ -173,7 +198,7 @@ function load(){
 }
 function save(){
   try{
-    localStorage.setItem(KEY, JSON.stringify({v:2,entries:S.entries,presets:S.presets}));
+    localStorage.setItem(KEY, JSON.stringify({v:2,entries:S.entries,presets:S.presets,thoughts:S.thoughts}));
     S.storageOk = true;
   }catch(e){ S.storageOk = false; renderBanner(); }
 }
@@ -206,7 +231,8 @@ function addEntry(text,daily,opts){
   const t=(text||"").trim(); if(!t) return false;
   const e={id:Date.now()+"-"+Math.random().toString(36).slice(2,6),text:t,
     ts:(typeof opts.ts==="number"?opts.ts:Date.now()),daily:!!daily,
-    mood:(typeof opts.mood==="number"?opts.mood:null),note:(opts.note||"").trim()};
+    mood:(typeof opts.mood==="number"?opts.mood:null),note:(opts.note||"").trim(),end:null};
+  if(typeof opts.end==="number"){ e.end = opts.end<=e.ts ? opts.end+DAY : opts.end; }
   S.entries.push(e); save();
   if(dateKey(e.ts)!==S.selectedDay) S.selectedDay=dateKey(e.ts);
   toast(fmtTime(e.ts)+" "+t); render();
@@ -214,9 +240,12 @@ function addEntry(text,daily,opts){
 }
 function readComposer(){
   if(!S.compOpen) return {};
-  const d=document.getElementById("compDate"), ti=document.getElementById("compTime"), n=document.getElementById("compNote");
+  const d=document.getElementById("compDate"), ti=document.getElementById("compTime"),
+        te=document.getElementById("compEnd"), n=document.getElementById("compNote");
   const o={mood:S.compMood, note:n?n.value:""};
-  if(d && d.value) o.ts = tsFrom(d.value,(ti&&ti.value)?ti.value:fmtTime(Date.now()));
+  const ds = (d && d.value) ? d.value : dateKey(Date.now());
+  if(d && d.value) o.ts = tsFrom(ds,(ti&&ti.value)?ti.value:fmtTime(Date.now()));
+  if(te && te.value) o.end = tsFrom(ds,te.value);
   return o;
 }
 function resetComposer(){ S.compMood=null; S.compDaily=false; }
@@ -266,6 +295,16 @@ function setEntryTime(id,val){
   if(!val) return; const e=S.entries.find(x=>x.id===id); if(!e) return;
   e.ts = tsFrom(dateKey(e.ts),val); save();
 }
+function setEntryEnd(id,val){
+  if(!val) return; const e=S.entries.find(x=>x.id===id); if(!e) return;
+  let en = tsFrom(dateKey(e.ts),val);
+  if(en<=e.ts) en += DAY;
+  e.end = en; save();
+}
+function clearEntryEnd(id){
+  const e=S.entries.find(x=>x.id===id); if(!e) return;
+  e.end = null; save(); render();
+}
 function setNote(id,val){
   const e=S.entries.find(x=>x.id===id); if(!e) return;
   e.note = val; save();
@@ -286,6 +325,33 @@ function shiftDay(d){
 }
 function goToday(){ S.selectedDay=dateKey(Date.now()); render(); }
 function setView(v){ S.view=v; render(); }
+
+/* ---------- 思考 ---------- */
+function thoughtGet(k){
+  const v=S.thoughts[k];
+  return v ? (typeof v==="string"?{t:v,up:0}:v) : null;
+}
+function setThought(k,val){
+  if(!val.trim()) delete S.thoughts[k];
+  else S.thoughts[k]={t:val,up:Date.now()};
+  save();
+  const c=document.getElementById("thcount-"+k);
+  if(c) c.textContent = val.trim() ? val.length+"字" : "未記入";
+}
+function toggleThought(k){ S.thoughtOpen = S.thoughtOpen===k?null:k; render(); }
+function shiftThMonth(d){
+  const dt=new Date(S.thY,S.thM+d,1);
+  S.thY=dt.getFullYear(); S.thM=dt.getMonth(); S.thoughtOpen=null; render();
+}
+function goThisThMonth(){
+  S.thY=new Date().getFullYear(); S.thM=new Date().getMonth(); render();
+}
+function openThoughtDate(){
+  const inp=document.getElementById("thDate");
+  if(!inp || !inp.value) return;
+  const [y,m]=inp.value.split("-").map(Number);
+  S.thY=y; S.thM=m-1; S.thoughtOpen=inp.value; render();
+}
 function shiftMonth(d){
   const dt=new Date(S.calY,S.calM+d,1);
   S.calY=dt.getFullYear(); S.calM=dt.getMonth(); render();
@@ -307,7 +373,7 @@ function toggleDaily(i){ S.presets[i].daily=!S.presets[i].daily; save(); render(
 /* ---------- エクスポート / インポート ---------- */
 function toggleData(){ S.dataOpen=!S.dataOpen; render(); }
 function exportData(){
-  const json = JSON.stringify({v:2,entries:S.entries,presets:S.presets});
+  const json = JSON.stringify({v:2,entries:S.entries,presets:S.presets,thoughts:S.thoughts});
   const ta = document.getElementById("dataArea");
   if(ta) ta.value = json;
   if(navigator.clipboard && navigator.clipboard.writeText){
@@ -328,12 +394,22 @@ function importData(){
   let es = d.entries.map(e=>({
     id:String(e.id||""), text:String(e.text||""), ts:Number(e.ts),
     daily:!!e.daily, mood:typeof e.mood==="number"?e.mood:null,
-    note:typeof e.note==="string"?e.note:""
+    note:typeof e.note==="string"?e.note:"", end:typeof e.end==="number"?e.end:null
   })).filter(e=>e.id && e.text && isFinite(e.ts));
   if((d.v||1)<2) es = es.map(e=>e.mood!==null?{...e,mood:(e.mood+1)*2}:e);
   const have = new Set(S.entries.map(e=>e.id));
   const added = es.filter(e=>!have.has(e.id));
   S.entries = S.entries.concat(added);
+  let thAdded = 0;
+  if(d.thoughts && typeof d.thoughts==="object" && !Array.isArray(d.thoughts)){
+    for(const k in d.thoughts){
+      const raw = d.thoughts[k];
+      const iv = typeof raw==="string" ? {t:raw,up:0} : raw;
+      if(!iv || typeof iv.t!=="string" || !iv.t.trim()) continue;
+      const lv = thoughtGet(k);
+      if(!lv || (iv.up||0) > (lv.up||0)){ S.thoughts[k]={t:iv.t,up:iv.up||0}; thAdded++; }
+    }
+  }
   if(Array.isArray(d.presets)){
     const pl = new Set(S.presets.map(p=>p.label));
     d.presets.forEach(p=>{
@@ -342,7 +418,7 @@ function importData(){
     });
   }
   save();
-  toast(added.length+"件を取り込んだ(重複 "+(es.length-added.length)+" 件はスキップ)");
+  toast(added.length+"件を取り込んだ(重複 "+(es.length-added.length)+" 件はスキップ"+(thAdded?"、思考 "+thAdded+" 日分":"")+")");
   render();
 }
 
@@ -398,7 +474,7 @@ function renderBanner(){
     '<div class="banner">保存領域に書き込めません(プライベートブラウズ中など)。この状態では記録は画面を閉じると消えます。通常モードのSafari、またはホーム画面のアイコンから開いてください。</div>';
 }
 function render(){
-  ["log","cal","graph"].forEach(v=>{
+  ["log","cal","graph","th"].forEach(v=>{
     document.getElementById("tab-"+v).className = "tab"+(S.view===v?" on":"");
   });
   renderBanner();
@@ -406,7 +482,8 @@ function render(){
   const main = document.getElementById("main");
   if(S.view==="log") main.innerHTML = renderLog(m);
   else if(S.view==="cal") main.innerHTML = renderCal(m);
-  else main.innerHTML = renderGraph(m);
+  else if(S.view==="graph") main.innerHTML = renderGraph(m);
+  else main.innerHTML = renderThoughts();
 }
 function renderLog(m){
   let h = '<div class="inputrow">'
@@ -419,6 +496,9 @@ function renderLog(m){
       +'<div class="erow"><span class="elabel">時刻</span>'
       +'<input type="date" id="compDate" class="dtinput" value="'+dateKey(Date.now())+'">'
       +'<input type="time" id="compTime" class="dtinput" value="'+fmtTime(Date.now())+'"></div>'
+      +'<div class="erow"><span class="elabel">終了</span>'
+      +'<input type="time" id="compEnd" class="dtinput">'
+      +'<span style="font-size:11px;color:var(--sub)">任意。入れると所要時間が出る</span></div>'
       +'<div class="erow"><span class="elabel">種別</span>'
       +'<button id="compDailyBtn" class="mini'+(S.compDaily?" on":"")+'" onclick="toggleCompDaily()">毎日</button>'
       +'<span style="font-size:12px;color:var(--sub)">オフ=自由イベント / オン=毎日のイベント</span></div>'
@@ -466,9 +546,10 @@ function renderLog(m){
   h += '<div class="timeline"><div class="axis"></div>';
   for(const e of list){
     h += '<div><div class="row" onclick="toggleExpand(\''+e.id+'\')">'
-      +'<span class="rtime">'+fmtTime(e.ts)+'</span>'
+      +'<span class="rtime">'+fmtTime(e.ts)+(e.end?'<span class="rend">'+fmtTime(e.end)+'</span>':"")+'</span>'
       +'<span class="rdot'+(e.daily?" daily":"")+'"></span>'
       +'<span class="rtext'+(e.daily?" daily":"")+'">'+esc(e.text)+'</span>'
+      +(e.end?'<span class="rdur">'+fmtDur(e.end-e.ts)+'</span>':"")
       +(e.mood!==null?'<span class="mbadge" style="background:'+moodColor(e.mood)+'">'+e.mood+'</span>':"")
       +'</div>';
     if(e.note) h += '<div class="rnote" onclick="toggleExpand(\''+e.id+'\')">'+esc(e.note)+'</div>';
@@ -477,6 +558,11 @@ function renderLog(m){
         +'<div class="erow"><span class="elabel">時刻</span>'
         +'<input type="date" class="dtinput" value="'+dateKey(e.ts)+'" onchange="setEntryDate(\''+e.id+'\',this.value)">'
         +'<input type="time" class="dtinput" value="'+fmtTime(e.ts)+'" onchange="setEntryTime(\''+e.id+'\',this.value)"></div>'
+        +'<div class="erow"><span class="elabel">終了</span>'
+        +'<input type="time" class="dtinput" value="'+(e.end?fmtTime(e.end):"")+'" onchange="setEntryEnd(\''+e.id+'\',this.value)">'
+        +(e.end
+          ?'<span style="font-size:12px;color:var(--sub)">'+fmtDur(e.end-e.ts)+'</span><button class="editlink" onclick="clearEntryEnd(\''+e.id+'\')">終了を消す</button>'
+          :'<span style="font-size:11px;color:var(--sub)">任意</span>')+'</div>'
         +'<div class="erow"><span class="elabel">種別</span>'
         +'<button class="mini'+(e.daily?" on":"")+'" onclick="toggleEntryDaily(\''+e.id+'\')">毎日</button>'
         +'<span style="font-size:12px;color:var(--sub)">'+(e.daily?"毎日のイベント(件数集計に含めない)":"自由イベント(件数集計に含める)")+'</span></div>'
@@ -542,6 +628,51 @@ function renderCal(m){
   }
   h += '</div><div class="calfoot"><span>緑=件数 / 色付き数字=気分平均</span><span>日付タップでその日のログへ</span></div></div>';
   return h;
+}
+function renderThoughts(){
+  const now=new Date(), tk=dateKey(Date.now());
+  const isCur = (S.thY===now.getFullYear() && S.thM===now.getMonth());
+  const dim = new Date(S.thY,S.thM+1,0).getDate();
+  const keys=[];
+  for(let d=dim; d>=1; d--) keys.push(S.thY+"-"+pad(S.thM+1)+"-"+pad(d));
+  const withText = keys.filter(k=>thoughtGet(k));
+  const chars = withText.reduce((a,k)=>a+thoughtGet(k).t.length,0);
+
+  let h = '<div class="daynav"><button class="arrow" onclick="shiftThMonth(-1)">‹</button>'
+    +'<div><div class="dtitle">'+S.thY+'年 '+(S.thM+1)+'月の思考</div>'
+    +'<div class="dsub">'+withText.length+'日分'+(chars?' · 計 '+chars+'字':'')+'</div></div>'
+    +'<div style="display:flex;align-items:center">'
+    +(!isCur?'<button class="today-link" onclick="goThisThMonth()">今月へ</button>':"")
+    +'<button class="arrow" onclick="shiftThMonth(1)">›</button></div></div>';
+
+  const show = keys.filter(k => thoughtGet(k) || (isCur && k===tk));
+  if(show.length===0){
+    h += '<div class="empty">この月の思考はまだない</div>';
+  }else{
+    for(const k of show) h += thoughtCard(k, tk);
+  }
+  h += '<div class="erow" style="justify-content:center;margin-top:20px;gap:8px">'
+    +'<input type="date" id="thDate" class="dtinput" value="'+tk+'">'
+    +'<button class="addp" onclick="openThoughtDate()">この日に書く</button></div>';
+  return h;
+}
+function thoughtCard(k, tk){
+  const v = thoughtGet(k), open = S.thoughtOpen===k;
+  const [y,m,d] = k.split("-").map(Number);
+  const wd = WDS[new Date(y,m-1,d).getDay()];
+  const txt = v?v.t:"";
+  let h = '<div class="tcard'+(k===tk?" today":"")+'">'
+    +'<div class="thead" onclick="toggleThought(\''+k+'\')">'
+    +'<span class="tdate">'+m+'/'+d+'</span>'
+    +'<span class="twd">'+wd+(k===tk?" · 今日":k===dateKey(Date.now()-DAY)?" · 昨日":"")+'</span>'
+    +'<span class="tmeta"><span id="thcount-'+k+'">'+(txt?txt.length+"字":"未記入")+'</span>'
+    +'<span class="chev">'+(open?"▲":"▼")+'</span></span></div>';
+  if(open){
+    h += '<div class="tarea"><textarea class="notearea" rows="9" placeholder="この日に考えたことを自由に…(自動保存)" oninput="setThought(\''+k+'\',this.value)">'+esc(txt)+'</textarea></div>';
+  }else if(txt){
+    h += '<div class="tprev" onclick="toggleThought(\''+k+'\')">'+esc(txt)+'</div>';
+  }
+  return h+'</div>';
 }
 function renderGraph(m){
   const series=[];
