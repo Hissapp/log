@@ -90,7 +90,6 @@ h1{font-size:17px;font-weight:700;margin:0;letter-spacing:.08em}
 .gap{position:relative;display:flex;align-items:center}
 .gap::before{content:"";position:absolute;left:60px;top:3px;bottom:3px;width:5px;background:var(--bg)}
 .gap::after{content:"";position:absolute;left:62px;top:3px;bottom:3px;border-left:2px dotted #C4CAC2}
-.gapdur{margin-left:86px;font-size:11px;color:var(--sub);font-family:var(--mono)}
 .spantail{position:relative}
 .spantail::before{content:"";position:absolute;left:59px;top:-3px;bottom:-3px;width:7px;border-radius:4px;background:#BFD8C7}
 .spantail.daily::before{background:#E8D9B8}
@@ -587,7 +586,7 @@ function renderLog(m){
       const gapMs = e.ts - (prev.end||prev.ts);
       if(gapMs >= 30*60000){
         const gh = clampH(gapMs/60000/12, 22, 56);
-        h += '<div class="gap" style="height:'+gh+'px"><span class="gapdur">'+fmtDur(gapMs)+' あき</span></div>';
+        h += '<div class="gap" style="height:'+gh+'px"></div>';
       }
     }
     prev = e;
